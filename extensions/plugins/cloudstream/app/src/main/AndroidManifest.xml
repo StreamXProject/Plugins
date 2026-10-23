@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+    <application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" tools:replace="android:label,android:allowBackup" android:label="CloudStream" android:allowBackup="false" android:usesCleartextTraffic="false" android:theme="@android:style/Theme.Material.NoActionBar">
+        <provider android:name=".CloudStreamProvider" android:authorities="com.music.streamx.cloudstream.engine" android:exported="true" />
+    </application>
+</manifest>

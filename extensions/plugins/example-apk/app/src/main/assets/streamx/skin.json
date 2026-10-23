@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "ocean",
+  "name": "Ocean",
+  "author": "StreamX Community",
+  "cornerRadiusDp": 18,
+  "dark": {
+    "background": "#070B12",
+    "surface": "#101722",
+    "surfaceVariant": "#1A2636",
+    "text": "#F4F7FC",
+    "secondary": "#A8B4C6",
+    "accent": "#A8C7FA"
+  }
+}

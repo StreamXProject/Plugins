@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="Ocean Extension" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name=".ExtensionActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="com.music.streamx.action.EXTENSION" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="streamx.extension.api" android:value="1" />
+            <meta-data android:name="streamx.extension.type" android:value="both" />
+            <meta-data android:name="streamx.extension.skinAsset" android:value="streamx/skin.json" />
+            <meta-data android:name="streamx.extension.authority" android:value="${applicationId}.source" />
+        </activity>
+        <provider android:name=".SourceProvider" android:authorities="${applicationId}.source" android:exported="true" />
+    </application>
+</manifest>

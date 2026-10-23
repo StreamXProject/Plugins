@@ -1,0 +1,20 @@
+[
+  {
+    "id": "applemusic",
+    "project": "extensions/plugins/applemusic",
+    "packageName": "com.music.streamx.extensions.applemusic",
+    "type": "plugin"
+  },
+  {
+    "id": "spotify",
+    "project": "extensions/plugins/spotify",
+    "packageName": "com.music.streamx.extensions.spotify",
+    "type": "plugin"
+  },
+  {
+    "id": "cloudstream",
+    "project": "extensions/plugins/cloudstream",
+    "packageName": "com.music.streamx.cloudstream",
+    "type": "plugin"
+  }
+]

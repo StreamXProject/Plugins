@@ -1,0 +1,17 @@
+**/.gradle/
+**/.kotlin/
+**/build/
+**/target/
+**/.cxx/
+**/.externalNativeBuild/
+**/local.properties
+**/keystore.properties
+**/*.jks
+**/*.keystore
+**/.env
+**/src/main/jniLibs/
+**/src/main/assets/qemu-firmware/
+.debug/
+dist/
+**/__pycache__/
+**/*.pyc

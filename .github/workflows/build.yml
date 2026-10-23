@@ -1,0 +1,135 @@
+name: Build and publish extensions
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: extensions-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        extension: [applemusic, spotify, cloudstream]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android toolchain
+        run: sdkmanager "platforms;android-36" "platforms;android-37.0" "build-tools;36.0.0" "ndk;27.0.12077973"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Check source hygiene
+        run: python3 .github/scripts/verify-sources.py
+      - uses: actions/setup-go@v5
+        if: matrix.extension == 'applemusic'
+        with:
+          go-version-file: extensions/plugins/applemusic/native/audio-tools/go.mod
+          cache-dependency-path: extensions/plugins/applemusic/native/audio-tools/go.sum
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools pkg-config protobuf-compiler
+      - name: Install Rust Android targets
+        if: matrix.extension == 'spotify'
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+      - name: Configure release signing
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: python3 .github/scripts/configure-signing.py
+      - name: Restore pinned QEMU runtime packages
+        if: matrix.extension == 'applemusic'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apple_runtime_dir=extensions/plugins/applemusic/.debug/apple-qemu
+          mkdir -p "$apple_runtime_dir"
+          gh release download qemu-runtime-v1 --repo "$GITHUB_REPOSITORY" --pattern streamx-termux-aarch64-runtime-v1.tar --dir "$apple_runtime_dir"
+          echo "d9f48f897cfec65a5e3fa2be83df7feacac71c6967bbb78d3086848072ce0c67  $apple_runtime_dir/streamx-termux-aarch64-runtime-v1.tar" | sha256sum --check
+          tar -xf "$apple_runtime_dir/streamx-termux-aarch64-runtime-v1.tar" -C "$apple_runtime_dir"
+      - name: Build and test plugin
+        env:
+          EXTENSION: ${{ matrix.extension }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: ./gradlew -p "extensions/plugins/$EXTENSION" --no-daemon -PextensionBuildNumber="$GITHUB_RUN_NUMBER" :app:assembleRelease :app:testReleaseUnitTest
+      - name: Verify packaged QEMU runtime
+        if: matrix.extension == 'applemusic'
+        run: |
+          cd extensions/plugins/applemusic
+          python3 tools/apple-qemu/verify-apk.py app/build/outputs/apk/release/*arm64-v8a*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.extension }}
+          path: extensions/plugins/${{ matrix.extension }}/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "build-tools;36.0.0"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Choose release version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          created=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          echo "RELEASE_TAG=v$(date -u -d "$created" +%Y.%m.%d.%H%M%S)" >> "$GITHUB_ENV"
+      - name: Verify signatures and create repository index
+        run: python3 .github/scripts/catalogue.py --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG"
+      - name: Publish APKs, then update the discovery index
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          retry() {
+            for attempt in 1 2 3 4; do
+              if "$@"; then return 0; fi
+              sleep "$((attempt * 3))"
+            done
+            return 1
+          }
+          current=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$current" != "$GITHUB_SHA" ]; then
+            echo "A newer main commit has a queued build; skipping this superseded release."
+            exit 0
+          fi
+          tag="$RELEASE_TAG"
+          short_sha=${GITHUB_SHA:0:7}
+          printf 'Automated update from [%s@`%s`](https://github.com/%s/commit/%s)\n' "$GITHUB_REPOSITORY" "$short_sha" "$GITHUB_REPOSITORY" "$GITHUB_SHA" > dist/release-notes.md
+          gh release view "$tag" >/dev/null 2>&1 || retry gh release create "$tag" --target "$GITHUB_SHA" --title "Plugins $RELEASE_TAG" --notes-file dist/release-notes.md
+          retry gh release upload "$tag" dist/*.apk --clobber
+          retry gh release edit "$tag" --title "Plugins $RELEASE_TAG" --notes-file dist/release-notes.md --latest
+          gh release view repo >/dev/null 2>&1 || retry gh release create repo --target "$GITHUB_SHA" --latest=false --title "Extension repository index" --notes "StreamX reads index.json from this release. APKs are stored in dated version releases."
+          mkdir -p previous
+          if gh release view repo --json assets --jq '.assets[].name' | grep -qx index.json; then
+            retry gh release download repo --pattern index.json --dir previous --clobber
+            if ! python3 .github/scripts/check-index-upgrade.py previous/index.json dist/index.json; then
+              echo "A newer index is already published; keeping it."
+              exit 0
+            fi
+          fi
+          retry gh release upload repo dist/index.json dist/index.min.json --clobber

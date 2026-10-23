@@ -1,0 +1,20 @@
+// node extensions/plugins/spotify/tools/test-browser-audio.cjs
+const fs=require('fs'),vm=require('vm'),assert=require('assert/strict');
+const source=fs.readFileSync('extensions/plugins/spotify/app/src/main/java/com/music/streamx/extensions/spotify/SpotifyRemotePlayer.java','utf8');
+const statusScript=JSON.parse(source.match(/view\.evaluateJavascript\(("\(\(\) => \{ const actual=(?:[^"\\]|\\.)*"), raw ->/)[1]);
+const wanted='1234567890123456789012';
+let media=null,clicks=0,remoteCommands=0;
+const button={disabled:false,getAttribute:()=> 'Play',querySelector:()=>null,click(){clicks++},closest:()=>null};
+const window={__streamxConnectClient:{_lastKnownPlayerState:{is_paused:false,is_playing:true,position_as_of_timestamp:120000,duration:200000},resume(){remoteCommands++},pause(){remoteCommands++}},__streamxWantedTrack:wanted,__streamxCheckTrack:()=>wanted};
+const sandbox={window,location:{origin:'https://open.spotify.com',pathname:'/track/'+wanted},document:{readyState:'complete',body:{textContent:''},querySelector:s=>s==='audio'?media:s.includes('control-button-playpause')?button:s.includes('action-bar-row')?button:null,querySelectorAll:s=>s==='button[data-testid="play-button"]'?[button]:[]},Set,Date,Number};
+vm.createContext(sandbox);
+let status=vm.runInContext(statusScript,sandbox);
+assert.equal(status.state,'buffering','remote progress cannot prove local audio');
+assert.equal(status.media_present,false);assert.equal(status.position_ms,0);
+media={tagName:'AUDIO',paused:false,currentTime:12.5,duration:200,readyState:4,networkState:1,volume:1,muted:false,currentSrc:'blob:local',buffered:{length:1,end:()=>30}};
+status=vm.runInContext(statusScript,sandbox);assert.equal(status.state,'playing');assert.equal(status.position_ms,12500);assert.equal(status.buffered_ms,30000);
+media.tagName='VIDEO';assert.equal(vm.runInContext(statusScript,sandbox).state,'buffering','Canvas cannot stand in for song audio');media.tagName='AUDIO';
+media.paused=true;assert.equal(vm.runInContext(statusScript,sandbox).state,'paused');
+media.paused=false;media.ended=true;assert.equal(vm.runInContext(statusScript,sandbox).state,'ended');
+media.ended=false;media.readyState=1;media.currentTime=0;assert.equal(vm.runInContext(statusScript,sandbox).state,'buffering');
+console.log('PASS: remote clock cannot fake audio; real local playing, pause, end and buffering');
